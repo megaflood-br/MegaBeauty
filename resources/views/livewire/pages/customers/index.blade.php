@@ -235,6 +235,16 @@ new #[Layout('layouts.app')] class extends Component
             'customers' => User::query()
                 ->where('tenant_id', $tenantId)
                 ->where('role', 'customer')
+
+                // 🔥 MÁGICA DO EAGER LOADING AQUI 🔥
+                // 1. Conta quantas comandas o cliente tem no total
+                ->withCount('commands')
+
+                // 2. Soma o total gasto (total_amount) apenas das comandas 'finished'
+                ->withSum(['commands as total_spent' => function($query) {
+                    $query->where('status', 'finished');
+                }], 'total_amount')
+
                 ->when($this->search, function ($query) {
                     $query->where(function ($q) {
                         $q->where('name', 'like', '%' . $this->search . '%')
@@ -244,6 +254,7 @@ new #[Layout('layouts.app')] class extends Component
                 })
                 ->orderBy('name', 'asc')
                 ->paginate(10, pageName: 'customers-page'),
+
             'customerCommands' => $customerCommands,
         ];
     }
@@ -278,7 +289,9 @@ new #[Layout('layouts.app')] class extends Component
                             <th class="px-6 py-3 text-left">Foto / Nome / Apelido</th>
                             <th class="px-6 py-3 text-left">Contato</th>
                             <th class="px-6 py-3 text-left">Instagram</th>
+                            <th class="px-6 py-3 text-left">Faturamento</th>
                             <th class="px-6 py-3 text-right">Ações</th>
+
                         </tr>
                     </thead>
                     <tbody class="bg-white divide-y divide-gray-200 text-gray-700">
@@ -307,10 +320,32 @@ new #[Layout('layouts.app')] class extends Component
                                 <td class="px-6 py-4 whitespace-nowrap text-gray-500">
                                     {{ $customer->instagram ? '@'.$customer->instagram : '-' }}
                                 </td>
-                                <td class="px-6 py-4 whitespace-nowrap text-right font-medium space-x-3">
-                                    <button wire:click="edit('{{ $customer->id }}')" class="text-indigo-600 hover:text-indigo-900">Editar / CRM</button>
-                                    <button wire:click="delete('{{ $customer->id }}')" wire:confirm="Tem certeza que deseja excluir este cliente?" class="text-red-600 hover:text-red-900">Excluir</button>
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <div class="text-sm font-black text-indigo-700">
+                                        R$ {{ number_format($customer->total_spent ?? 0, 2, ',', '.') }}
+                                    </div>
+                                    <div class="text-xs text-gray-500 font-medium">
+                                        {{ $customer->commands_count ?? 0 }} Atendimentos
+                                    </div>
                                 </td>
+                                <td class="px-6 py-4 whitespace-nowrap text-right font-medium space-x-3">
+                                    <!-- Botão Editar -->
+                                    <button wire:click="edit({{ $customer->id }})" class="text-indigo-600 hover:text-indigo-900 transition-colors" title="Editar">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                        </svg>
+                                    </button>
+                                    <!-- Divisor vertical discreto -->
+                                    <span class="text-gray-300">|</span>
+
+                                    <!-- Botão Excluir -->
+                                    <button wire:click="delete({{ $customer->id }})" wire:confirm="Tem certeza que deseja excluir este cliente?" class="text-red-500 hover:text-red-700 transition-colors" title="Excluir">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                        </svg>
+                                    </button>
+                                </td>
+
                             </tr>
                         @empty
                             <tr>

@@ -111,6 +111,11 @@ class User extends Authenticatable
         return $this->hasMany(ProfessionalPayment::class);
     }
 
+    public function commands(): HasMany
+    {
+        return $this->hasMany(Command::class, 'customer_id');
+    }
+
     // Helpers de Roles
     public function isSuperAdmin(): bool { return $this->role === 'superadmin'; }
     public function isAdmin(): bool { return $this->role === 'admin'; }

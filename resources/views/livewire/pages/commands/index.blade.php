@@ -261,6 +261,9 @@ new #[Layout('layouts.app')] class extends Component
 
         $tenantId = auth()->user()->tenant_id;
 
+        // INÍCIO DA TRANSAÇÃO SEGURA
+        DB::transaction(function () use ($targetStatus, $tenantId) {
+
         if ($this->selectedCommandId) {
             $command = Command::where('tenant_id', $tenantId)->findOrFail($this->selectedCommandId);
 
@@ -475,6 +478,9 @@ new #[Layout('layouts.app')] class extends Component
         if($targetStatus === 'finished') {
             Appointment::where('command_id', $command->id)->update(['status' => 'finished']);
         }
+
+        });
+        // FIM DA TRANSAÇÃO
 
         session()->flash('message', $targetStatus === 'finished' ? 'Comanda encerrada com sucesso!' : 'Comanda salva com sucesso!');
         $this->showModal = false;

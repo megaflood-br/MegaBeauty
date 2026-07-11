@@ -14,10 +14,14 @@ class Command extends Model
         'payment_method', 'finished_at'
     ];
 
+    // Substitua o array $casts atual no Command.php por este:
     protected $casts = [
         'finished_at' => 'datetime',
+        'total_services' => 'decimal:2',
+        'total_products' => 'decimal:2',
+        'discount' => 'decimal:2',
+        'total_amount' => 'decimal:2',
     ];
-
     /**
      * Relacionamento corrigido temporariamente para apontar para User
      */
