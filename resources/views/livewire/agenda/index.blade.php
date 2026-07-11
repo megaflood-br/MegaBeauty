@@ -705,12 +705,12 @@ new #[Layout('layouts.app')] class extends Component
 
         <div class="flex flex-col md:flex-row justify-between items-center bg-white p-4 rounded-xl shadow-sm border mb-4">
             <div class="flex items-center space-x-2">
-                <button wire:click="changeDate('prev')" class="p-2 border rounded-lg bg-white font-bold">&lt;</button>
-                <button wire:click="changeDate('today')" class="px-4 py-2 border rounded-lg bg-white text-xs font-bold uppercase">Hoje</button>
-                <button wire:click="changeDate('next')" class="p-2 border rounded-lg bg-white font-bold">&gt;</button>
-                <span class="text-lg font-black text-gray-800 pl-2">{{ \Carbon\Carbon::parse($selectedDate)->translatedFormat('d \d\e F \d\e Y') }}</span>
+                <button wire:click="changeDate('prev')" class="p-2 border rounded-lg bg-white font-bold text-gray-600 hover:bg-gray-50">&lt;</button>
+                <button wire:click="changeDate('today')" class="px-4 py-2 border rounded-lg bg-white text-xs font-bold uppercase text-gray-700 hover:bg-gray-50">Hoje</button>
+                <button wire:click="changeDate('next')" class="p-2 border rounded-lg bg-white font-bold text-gray-600 hover:bg-gray-50">&gt;</button>
+                <span class="text-lg font-bold text-gray-800 pl-4">{{ \Carbon\Carbon::parse($selectedDate)->translatedFormat('d \d\e F \d\e Y') }}</span>
             </div>
-            <input type="date" wire:model.live="selectedDate" class="text-xs border-gray-300 rounded-lg shadow-sm">
+            <input type="date" wire:model.live="selectedDate" class="text-sm border-gray-300 rounded-lg shadow-sm text-gray-600">
         </div>
 
         @if(session()->has('message'))
@@ -720,21 +720,47 @@ new #[Layout('layouts.app')] class extends Component
         @endif
 
         <div class="bg-white rounded-xl shadow-sm border overflow-x-auto max-h-[80vh] overflow-y-auto">
-            <div class="min-w-[800px]" style="display: grid; grid-template-columns: 80px repeat({{ count($professionals) }}, minmax(180px, 1fr));">
-                <div class="bg-gray-50 p-3 text-center text-[10px] font-bold text-gray-400 uppercase border-r border-b sticky top-0 left-0 z-30">Hora</div>
+            <div class="min-w-[800px]" style="display: grid; grid-template-columns: 60px repeat({{ count($professionals) }}, minmax(200px, 1fr));">
+
+                <!-- Cabeçalho de Hora (Fixo no canto superior esquerdo) -->
+                <div class="bg-white p-2 text-center text-[10px] font-bold text-gray-400 uppercase border-r border-b border-gray-100 sticky top-0 left-0 z-30 flex items-end justify-center pb-2">
+                    Hora
+                </div>
+
+                <!-- Cabeçalho dos Profissionais -->
                 @foreach($professionals as $prof)
-                    <div class="p-3 text-center border-b border-r bg-white sticky top-0 z-20 flex flex-col items-center">
-                        <span class="text-xs font-bold text-gray-800">{{ $prof->name }}</span>
+                    <div class="py-3 px-2 text-center border-b border-r border-gray-100 bg-white sticky top-0 z-20 flex flex-col items-center justify-center">
+                        <div class="w-8 h-8 rounded-full bg-gray-100 overflow-hidden mb-1.5 shadow-sm border border-gray-200">
+                            @php
+                                $avatarUrl = null;
+                                if (!empty($prof->photo)) {
+                                    $avatarUrl = str_starts_with($prof->photo, 'http') ? $prof->photo : asset('storage/' . $prof->photo);
+                                } elseif (!empty($prof->avatar)) {
+                                    $avatarUrl = str_starts_with($prof->avatar, 'http') ? $prof->avatar : asset('storage/' . $prof->avatar);
+                                } else {
+                                    $avatarUrl = "https://ui-avatars.com/api/?name=" . urlencode($prof->name) . "&background=f3f4f6&color=374151&bold=true";
+                                }
+                            @endphp
+                            <img src="{{ $avatarUrl }}" alt="{{ $prof->name }}" class="w-full h-full object-cover">
+                        </div>
+                        <span class="text-xs font-medium text-gray-700">{{ $prof->name }}</span>
                     </div>
                 @endforeach
 
+                <!-- Slots da Grade e Coluna de Tempo -->
                 @foreach($timeSlots as $index => $slot)
-                    <div class="bg-gray-50 text-center font-mono text-xs border-r border-b border-gray-200 p-2 flex items-center justify-center h-10 sticky left-0 z-10" style="grid-column: 1; grid-row: {{ $index + 2 }};">{{ $slot }}</div>
+                    <!-- Coluna de Tempo Esquerda -->
+                    <div class="bg-white text-center font-medium text-[10px] text-gray-400 border-r border-b border-gray-100 p-1 flex items-start justify-center h-8 sticky left-0 z-10" style="grid-column: 1; grid-row: {{ $index + 2 }};">
+                        {{ str_ends_with($slot, '0') || str_ends_with($slot, '5') ? $slot : '' }}
+                    </div>
+
+                    <!-- Quadrados Vazios da Grade -->
                     @foreach($professionals as $pIndex => $prof)
-                        <div wire:click="openAppointment({{ $prof->id }}, '{{ $slot }}')" class="border-r border-b border-dashed border-gray-200 cursor-pointer hover:bg-gray-50/50 h-10" style="grid-column: {{ $pIndex + 2 }}; grid-row: {{ $index + 2 }};"></div>
+                        <div wire:click="openAppointment({{ $prof->id }}, '{{ $slot }}')" class="border-r border-b border-gray-100 cursor-pointer hover:bg-gray-50 h-8 transition-colors" style="grid-column: {{ $pIndex + 2 }}; grid-row: {{ $index + 2 }};"></div>
                     @endforeach
                 @endforeach
 
+                <!-- Renderização dos Agendamentos -->
                 @foreach($appointments as $app)
                     @php
                         $pIndex = $professionals->pluck('id')->search($app->professional_id);
@@ -747,18 +773,24 @@ new #[Layout('layouts.app')] class extends Component
                         }
 
                         $currentStatus = ($app->command && $app->command->status === 'finished') ? 'finished' : $app->status;
+
+                        // Cores sólidas simulando o padrão Belasis
                         $statusClasses = match($currentStatus) {
-                            'confirmed' => 'bg-emerald-50 border-emerald-500 text-emerald-900',
-                            'checked_in'=> 'bg-sky-50 border-sky-500 text-sky-900',
-                            'finished'  => 'bg-purple-50 border-purple-400 text-purple-900 opacity-85 line-through',
-                            'canceled'  => 'bg-rose-50 border-rose-400 text-rose-900 opacity-70 line-through',
-                            default     => 'bg-amber-50 border-amber-400 text-amber-900',
+                            'confirmed', 'pending' => 'bg-[#31cf91] text-white shadow-sm', // Verde Sólido
+                            'checked_in'=> 'bg-sky-500 text-white shadow-sm', // Azul Sólido
+                            'finished'  => 'bg-gray-400 text-white opacity-90', // Cinza Finalizado
+                            'canceled'  => 'bg-rose-500 text-white opacity-80 line-through', // Vermelho Cancelado
+                            default     => 'bg-[#31cf91] text-white shadow-sm',
                         };
                     @endphp
                     @if($pIndex !== false && $startRow !== false && $startRow < $endRow)
-                        <div wire:click="editAppointment({{ $app->id }})" class="border-l-4 p-2 rounded-md m-0.5 shadow-sm overflow-hidden flex flex-col justify-between cursor-pointer {{ $statusClasses }}" style="grid-column: {{ $pIndex + 2 }}; grid-row: {{ $startRow + 2 }} / {{ $endRow + 2 }}; z-index: 10;">
-                            <div class="font-bold text-[11px] truncate">{{ $app->customer?->name }}</div>
-                            <div class="text-[10px] opacity-80 truncate">{{ $app->service?->name }}</div>
+                        <!-- Card do Agendamento Estilo Belasis -->
+                        <div wire:click="editAppointment({{ $app->id }})" class="p-2 rounded-md m-[1px] overflow-hidden flex flex-col cursor-pointer transition hover:brightness-95 {{ $statusClasses }}" style="grid-column: {{ $pIndex + 2 }}; grid-row: {{ $startRow + 2 }} / {{ $endRow + 2 }}; z-index: 10;">
+                            <div class="text-[10px] font-semibold opacity-90 leading-tight mb-0.5">
+                                {{ \Carbon\Carbon::parse($app->start_time)->format('H:i') }} - {{ \Carbon\Carbon::parse($app->end_time)->format('H:i') }}
+                            </div>
+                            <div class="font-bold text-[11px] truncate leading-tight">{{ $app->customer?->name }}</div>
+                            <div class="text-[10px] truncate leading-tight mt-0.5 opacity-90">{{ $app->service?->name }}</div>
                         </div>
                     @endif
                 @endforeach
@@ -766,25 +798,40 @@ new #[Layout('layouts.app')] class extends Component
         </div>
     </div>
 
+    <!-- Modais de Edição/Criação mantidos idênticos, apenas visual da grade alterado -->
     @if($showAppointmentModal)
         <div class="fixed inset-0 overflow-y-auto z-50 flex items-center justify-center p-4">
             <div class="fixed inset-0 bg-gray-500 opacity-75" wire:click="$set('showAppointmentModal', false)"></div>
             <div class="bg-white rounded-xl shadow-2xl w-full max-w-4xl p-6 z-50 overflow-visible" wire:key="agenda-main-modal">
                 <h3 class="text-base font-black mb-4">Gerenciamento de Agendamento</h3>
                 <form wire:submit.prevent="saveAppointment" class="space-y-4">
-                    <div class="relative">
-                        <x-input-label value="Cliente *" />
-                        <x-text-input type="text" wire:model="customer_search" wire:input.debounce.300ms="searchCustomer($event.target.value)" placeholder="Buscar cliente..." class="w-full text-xs mt-1" required />
-                        @if(!empty($autocompleteCustomers))
-                            <div class="absolute left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-[150] max-h-36 overflow-y-auto divide-y">
-                                @foreach($autocompleteCustomers as $cust)
-                                    <button type="button" wire:click="selectCustomer({{ $cust['id'] }}, '{{ addslashes($cust['name']) }}')" class="w-full text-left px-4 py-2 hover:bg-indigo-50 text-xs block text-gray-700 font-medium transition">{{ $cust['name'] }}</button>
-                                @endforeach
-                            </div>
-                        @endif
+
+                    <!-- Linha com Cliente e Status -->
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
+                        <div class="md:col-span-2 relative">
+                            <x-input-label value="Cliente *" />
+                            <x-text-input type="text" wire:model="customer_search" wire:input.debounce.300ms="searchCustomer($event.target.value)" placeholder="Buscar cliente..." class="w-full text-xs mt-1 h-[38px]" required />
+                            @if(!empty($autocompleteCustomers))
+                                <div class="absolute left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-[150] max-h-36 overflow-y-auto divide-y">
+                                    @foreach($autocompleteCustomers as $cust)
+                                        <button type="button" wire:click="selectCustomer({{ $cust['id'] }}, '{{ addslashes($cust['name']) }}')" class="w-full text-left px-4 py-2 hover:bg-indigo-50 text-xs block text-gray-700 font-medium transition">{{ $cust['name'] }}</button>
+                                    @endforeach
+                                </div>
+                            @endif
+                        </div>
+                        <div class="md:col-span-1">
+                            <x-input-label value="Status da Agenda" />
+                            <select wire:model="status" class="w-full mt-1 border-gray-300 rounded-md shadow-sm text-xs h-[38px]" required>
+                                <option value="pending">⏳ Pendente</option>
+                                <option value="confirmed">👍 Confirmado</option>
+                                <option value="checked_in">📍 Em Atendimento</option>
+                               <!-- <option value="finished">✅ Finalizado</option> -->
+                                <option value="canceled">❌ Cancelado</option>
+                            </select>
+                        </div>
                     </div>
 
-                    <div class="space-y-2 overflow-visible">
+                    <div class="space-y-2 overflow-visible pt-2">
                         <div class="grid grid-cols-12 gap-2 font-bold text-[10px] text-gray-500 uppercase tracking-wide px-1">
                             <div class="col-span-4">Serviço</div>
                             <div class="col-span-3">Profissional</div>
