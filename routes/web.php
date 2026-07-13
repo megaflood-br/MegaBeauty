@@ -5,11 +5,13 @@ use Livewire\Volt\Volt;
 
 Route::view('/', 'welcome');
 
-Route::view('dashboard', 'dashboard')
+// Rota de Dashboard via Volt
+Volt::route('dashboard', 'dashboard')
     ->middleware(['auth', 'verified'])
     ->name('dashboard');
 
-Route::view('profile', 'profile')
+// Perfil de usuário
+Volt::route('profile', 'profile')
     ->middleware(['auth'])
     ->name('profile');
 
@@ -21,6 +23,12 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Volt::route('services', 'pages.services.index')->name('services.index');
     Volt::route('professionals', 'pages.professionals.index')->name('professionals.index');
     Volt::route('commands', 'pages.commands.index')->name('commands.index');
+
+    // Nova rota para o gerenciador de POPs
+    Volt::route('pops', 'pages.pops.index')->name('pops.index');
+    Volt::route('/pops/create', 'pages.pops.manage')->name('pops.create');
+    Volt::route('/pops/{id}/edit', 'pages.pops.manage')->name('pops.edit');
+
     Volt::route('/formas-pagamento', 'payment-methods.index')->name('payment-methods.index');
     Volt::route('/financeiro/transacoes', 'financial.transactions')->name('financial.transactions');
     Volt::route('/financeiro/categorias', 'financial.categories')->name('financial.categories');
