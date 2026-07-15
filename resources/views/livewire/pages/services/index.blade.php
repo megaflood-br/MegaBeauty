@@ -3,6 +3,7 @@
 use App\Models\Service;
 use App\Models\Category;
 use App\Models\Product;
+use App\Models\AnamnesisTemplate;
 use Illuminate\Support\Str;
 use Livewire\Volt\Component;
 use Livewire\WithPagination;
@@ -23,6 +24,7 @@ new #[Layout('layouts.app')] class extends Component
     // Campos do Formulário
     public string $name = '';
     public ?string $category_id = '';
+    public ?string $anamnesis_template_id = ''; // NOVO CAMPO: Anamnese
     public string $price = '0,00';
     public string $additional_cost = '0,00';
     public string $commission_percentage = '0,00';
@@ -33,7 +35,6 @@ new #[Layout('layouts.app')] class extends Component
     public ?string $existing_image_path = null;
 
     // Array para Produtos Relacionados Dinâmicos
-    // Formato: [['product_id' => '', 'consumed_quantity' => '']]
     public array $selectedProducts = [];
 
     public function updatingSearch(): void
@@ -76,6 +77,7 @@ new #[Layout('layouts.app')] class extends Component
         $this->selectedServiceId = $service->id;
         $this->name = $service->name;
         $this->category_id = $service->category_id;
+        $this->anamnesis_template_id = $service->anamnesis_template_id; // CARREGA A ANAMNESE
         $this->price = number_format($service->price, 2, ',', '.');
         $this->additional_cost = number_format($service->additional_cost, 2, ',', '.');
         $this->commission_percentage = number_format($service->commission_percentage, 2, ',', '.');
@@ -113,6 +115,7 @@ new #[Layout('layouts.app')] class extends Component
             'name' => $this->name,
             'slug' => Str::slug($this->name),
             'category_id' => $this->category_id ?: null,
+            'anamnesis_template_id' => $this->anamnesis_template_id ?: null, // SALVA A ANAMNESE
             'price' => $this->parseCurrency($this->price),
             'additional_cost' => $this->parseCurrency($this->additional_cost),
             'commission_percentage' => $this->parseCurrency($this->commission_percentage),
@@ -163,7 +166,7 @@ new #[Layout('layouts.app')] class extends Component
     private function resetForm(): void
     {
         $this->reset([
-            'name', 'category_id', 'price', 'additional_cost', 'commission_percentage',
+            'name', 'category_id', 'anamnesis_template_id', 'price', 'additional_cost', 'commission_percentage',
             'duration_minutes', 'description', 'image', 'existing_image_path', 'selectedServiceId', 'selectedProducts'
         ]);
         $this->is_active = true;
@@ -176,11 +179,12 @@ new #[Layout('layouts.app')] class extends Component
                 ->when($this->search, fn($q) => $q->where('name', 'like', "%{$this->search}%"))
                 ->orderBy('name', 'asc')
                 ->paginate(10),
-            // CORREÇÃO AQUI: Filtrando estritamente por tipo 'service'
             'categories' => Category::where('tenant_id', auth()->user()->tenant_id)
                 ->where('type', 'service')
                 ->orderBy('name', 'asc')
                 ->get(),
+            // CARREGA OS TEMPLATES DE ANAMNESE DISPONÍVEIS
+            'anamnesisTemplates' => AnamnesisTemplate::orderBy('name', 'asc')->get(),
             'allProducts' => Product::where('tenant_id', auth()->user()->tenant_id)->orderBy('name', 'asc')->get()
         ];
     }
@@ -257,11 +261,11 @@ new #[Layout('layouts.app')] class extends Component
     @if($showModal)
         <div class="fixed inset-0 overflow-y-auto z-50 flex items-center justify-center">
             <div class="fixed inset-0 bg-gray-500 opacity-75" wire:click="$set('showModal', false)"></div>
-            <div class="bg-white rounded-lg overflow-hidden shadow-xl transform transition-all sm:max-w-3xl sm:w-full p-6 z-50 max-h-[90vh] overflow-y-auto">
+            <div class="bg-white rounded-lg overflow-hidden shadow-xl transform transition-all sm:max-w-4xl sm:w-full p-6 z-50 max-h-[90vh] overflow-y-auto">
                 <h3 class="text-lg font-medium text-gray-900 mb-4">{{ $isEditing ? 'Editar Serviço' : 'Cadastrar Novo Serviço' }}</h3>
 
                 <form wire:submit="save" class="space-y-4" enctype="multipart/form-data">
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <div>
                             <x-input-label value="Nome do Serviço *" />
                             <x-text-input wire:model="name" type="text" class="block mt-1 w-full" required />
@@ -272,6 +276,15 @@ new #[Layout('layouts.app')] class extends Component
                                 <option value="">Sem Categoria</option>
                                 @foreach($categories as $category)
                                     <option value="{{ $category->id }}">{{ $category->name }}</option>
+                                @endforeach
+                            </select>
+                        </div>
+                        <div>
+                            <x-input-label value="Ficha de Anamnese" />
+                            <select wire:model="anamnesis_template_id" class="block mt-1 w-full border-gray-300 focus:border-indigo-500 rounded-md shadow-sm">
+                                <option value="">Nenhuma / Não Exige</option>
+                                @foreach($anamnesisTemplates as $template)
+                                    <option value="{{ $template->id }}">{{ $template->name }}</option>
                                 @endforeach
                             </select>
                         </div>
@@ -309,7 +322,7 @@ new #[Layout('layouts.app')] class extends Component
                         <div class="flex items-center">
                             <label class="inline-flex items-center cursor-pointer mt-5">
                                 <input type="checkbox" wire:model="is_active" class="sr-only peer">
-                                <div class="relative w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after: Josephson after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                                <div class="relative w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
                                 <span class="ms-3 text-sm font-medium text-gray-700">Serviço Ativo</span>
                             </label>
                         </div>

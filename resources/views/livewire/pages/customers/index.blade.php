@@ -2,33 +2,29 @@
 
 use App\Models\User;
 use App\Models\Command;
+use App\Models\CustomerAnamnesis;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Volt\Component;
 use Livewire\WithPagination;
-use Livewire\WithFileUploads; // Adicionado para suportar o upload de imagens
+use Livewire\WithFileUploads;
 use Livewire\Attributes\Layout;
 
 new #[Layout('layouts.app')] class extends Component
 {
-    use WithPagination, WithFileUploads; // Trait ativada aqui
+    use WithPagination, WithFileUploads;
 
-    // Propriedades para a Busca e Filtros
     public string $search = '';
 
-    // Controle do Modal Principal (Clientes)
     public bool $showModal = false;
     public bool $isEditing = false;
     public ?string $selectedCustomerId = null;
 
-    // Controle de Abas Internas do Modal de CRM
     public string $activeModalTab = 'form';
 
-    // Controle do Sub-Modal de Detalhes da Comanda Histórica
     public bool $showCommandDetailsModal = false;
     public ?Command $selectedCommandDetails = null;
 
-    // Propriedades do Formulário de Cadastro/Edição
     public string $name = '';
     public string $nick = '';
     public string $email = '';
@@ -36,10 +32,9 @@ new #[Layout('layouts.app')] class extends Component
     public string $user_document_cpf_cnpj = '';
     public string $instagram = '';
     public string $observations = '';
-    public $photo; // Upload temporário
-    public ?string $currentPhotoUrl = null; // Caminho da foto salva
+    public $photo;
+    public ?string $currentPhotoUrl = null;
 
-    // Propriedades calculadas para o CRM do Cliente
     public float $totalSpent = 0.00;
     public string $daysSinceLastVisit = 'Nenhum atendimento registrado';
 
@@ -48,9 +43,6 @@ new #[Layout('layouts.app')] class extends Component
         $this->resetPage();
     }
 
-    /**
-     * Prepara o modal para um novo cadastro
-     */
     public function openCreateModal(): void
     {
         $this->resetForm();
@@ -59,9 +51,6 @@ new #[Layout('layouts.app')] class extends Component
         $this->showModal = true;
     }
 
-    /**
-     * Carrega os dados do cliente no formulário e processa estatísticas financeiras/CRM
-     */
     public function edit(string $id): void
     {
         $this->resetForm();
@@ -81,7 +70,6 @@ new #[Layout('layouts.app')] class extends Component
         $this->observations = $customer->observations ?? '';
         $this->currentPhotoUrl = $customer->photo_path ? Storage::url($customer->photo_path) : null;
 
-        // --- CÁLCULO CRM DO CLIENTE ---
         $this->totalSpent = (float) Command::where('customer_id', $customer->id)
             ->where('status', 'finished')
             ->sum('total_amount');
@@ -105,9 +93,6 @@ new #[Layout('layouts.app')] class extends Component
         $this->showModal = true;
     }
 
-    /**
-     * Abre e carrega a comanda completa para exibição detalhada dos itens consumidos
-     */
     public function viewCommand(int $commandId): void
     {
         $this->selectedCommandDetails = Command::with([
@@ -121,9 +106,6 @@ new #[Layout('layouts.app')] class extends Component
         $this->showCommandDetailsModal = true;
     }
 
-    /**
-     * Salva ou atualiza o cliente
-     */
     public function save(): void
     {
         $emailRule = $this->isEditing
@@ -193,9 +175,6 @@ new #[Layout('layouts.app')] class extends Component
         $this->resetForm();
     }
 
-    /**
-     * Remove o cliente do banco de dados
-     */
     public function delete(string $id): void
     {
         $customer = User::where('tenant_id', auth()->user()->tenant_id)
@@ -225,26 +204,30 @@ new #[Layout('layouts.app')] class extends Component
         $tenantId = auth()->user()->tenant_id;
 
         $customerCommands = [];
-        if ($this->selectedCustomerId && $this->activeModalTab === 'commands') {
-            $customerCommands = Command::where('customer_id', $this->selectedCustomerId)
-                ->orderBy('created_at', 'desc')
-                ->paginate(5, pageName: 'commands-page');
+        $customerAnamneses = [];
+
+        if ($this->selectedCustomerId) {
+            if ($this->activeModalTab === 'commands') {
+                $customerCommands = Command::where('customer_id', $this->selectedCustomerId)
+                    ->orderBy('created_at', 'desc')
+                    ->paginate(5, pageName: 'commands-page');
+            } elseif ($this->activeModalTab === 'anamneses') {
+                $customerAnamneses = CustomerAnamnesis::with('service')
+                    ->where('customer_id', $this->selectedCustomerId)
+                    ->where('is_completed', true)
+                    ->orderBy('completed_at', 'desc')
+                    ->paginate(10, pageName: 'anamneses-page');
+            }
         }
 
         return [
             'customers' => User::query()
                 ->where('tenant_id', $tenantId)
                 ->where('role', 'customer')
-
-                // 🔥 MÁGICA DO EAGER LOADING AQUI 🔥
-                // 1. Conta quantas comandas o cliente tem no total
                 ->withCount('commands')
-
-                // 2. Soma o total gasto (total_amount) apenas das comandas 'finished'
                 ->withSum(['commands as total_spent' => function($query) {
                     $query->where('status', 'finished');
                 }], 'total_amount')
-
                 ->when($this->search, function ($query) {
                     $query->where(function ($q) {
                         $q->where('name', 'like', '%' . $this->search . '%')
@@ -256,6 +239,7 @@ new #[Layout('layouts.app')] class extends Component
                 ->paginate(10, pageName: 'customers-page'),
 
             'customerCommands' => $customerCommands,
+            'customerAnamneses' => $customerAnamneses,
         ];
     }
 }; ?>
@@ -291,7 +275,6 @@ new #[Layout('layouts.app')] class extends Component
                             <th class="px-6 py-3 text-left">Instagram</th>
                             <th class="px-6 py-3 text-left">Faturamento</th>
                             <th class="px-6 py-3 text-right">Ações</th>
-
                         </tr>
                     </thead>
                     <tbody class="bg-white divide-y divide-gray-200 text-gray-700">
@@ -329,27 +312,22 @@ new #[Layout('layouts.app')] class extends Component
                                     </div>
                                 </td>
                                 <td class="px-6 py-4 whitespace-nowrap text-right font-medium space-x-3">
-                                    <!-- Botão Editar -->
                                     <button wire:click="edit({{ $customer->id }})" class="text-indigo-600 hover:text-indigo-900 transition-colors" title="Editar">
                                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                                         </svg>
                                     </button>
-                                    <!-- Divisor vertical discreto -->
                                     <span class="text-gray-300">|</span>
-
-                                    <!-- Botão Excluir -->
                                     <button wire:click="delete({{ $customer->id }})" wire:confirm="Tem certeza que deseja excluir este cliente?" class="text-red-500 hover:text-red-700 transition-colors" title="Excluir">
                                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                                         </svg>
                                     </button>
                                 </td>
-
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="4" class="px-6 py-8 text-gray-500 text-center">Nenhum cliente encontrado.</td>
+                                <td colspan="5" class="px-6 py-8 text-gray-500 text-center">Nenhum cliente encontrado.</td>
                             </tr>
                         @endforelse
                     </tbody>
@@ -366,7 +344,7 @@ new #[Layout('layouts.app')] class extends Component
         <div class="fixed inset-0 overflow-y-auto z-40 flex items-center justify-center p-4">
             <div class="fixed inset-0 bg-gray-500 opacity-75" wire:click="$set('showModal', false)"></div>
 
-            <div class="bg-white rounded-lg shadow-xl transform transition-all w-full max-w-2xl p-6 z-40 max-h-[92vh] overflow-y-auto">
+            <div class="bg-white rounded-lg shadow-xl transform transition-all w-full max-w-3xl p-6 z-40 max-h-[92vh] overflow-y-auto">
 
                 @if($isEditing)
                     <div class="grid grid-cols-2 gap-4 mb-5 bg-indigo-50/70 p-4 border border-indigo-100 rounded-lg text-xs">
@@ -389,12 +367,16 @@ new #[Layout('layouts.app')] class extends Component
                         </div>
                     </div>
 
-                    <div class="border-b border-gray-200 mb-4 flex space-x-6 text-xs">
-                        <button type="button" wire:click="$set('activeModalTab', 'form')" class="pb-2 font-bold uppercase {{ $activeModalTab === 'form' ? 'text-indigo-600 border-b-2 border-indigo-600' : 'text-gray-400' }}">
+                    <!-- TRÊS ABAS -->
+                    <div class="border-b border-gray-200 mb-4 flex space-x-6 text-xs overflow-x-auto whitespace-nowrap">
+                        <button type="button" wire:click="$set('activeModalTab', 'form')" class="pb-2 font-bold uppercase {{ $activeModalTab === 'form' ? 'text-indigo-600 border-b-2 border-indigo-600' : 'text-gray-400 hover:text-gray-600' }}">
                             📋 Cadastro / Dados
                         </button>
-                        <button type="button" wire:click="$set('activeModalTab', 'commands')" class="pb-2 font-bold uppercase {{ $activeModalTab === 'commands' ? 'text-indigo-600 border-b-2 border-indigo-600' : 'text-gray-400' }}">
-                            🧾 Histórico de Comandas
+                        <button type="button" wire:click="$set('activeModalTab', 'commands')" class="pb-2 font-bold uppercase {{ $activeModalTab === 'commands' ? 'text-indigo-600 border-b-2 border-indigo-600' : 'text-gray-400 hover:text-gray-600' }}">
+                            🧾 Histórico Comandas
+                        </button>
+                        <button type="button" wire:click="$set('activeModalTab', 'anamneses')" class="pb-2 font-bold uppercase {{ $activeModalTab === 'anamneses' ? 'text-indigo-600 border-b-2 border-indigo-600' : 'text-gray-400 hover:text-gray-600' }}">
+                            📝 Fichas Anamnese
                         </button>
                     </div>
                 @else
@@ -404,7 +386,6 @@ new #[Layout('layouts.app')] class extends Component
                 @if($activeModalTab === 'form')
                     <form wire:submit="save">
                         <div class="grid grid-cols-1 gap-4 text-sm">
-
                             <div class="flex items-center space-x-4 bg-gray-50 p-3 rounded-lg border">
                                 <div class="shrink-0">
                                     @if ($photo)
@@ -516,7 +497,68 @@ new #[Layout('layouts.app')] class extends Component
 
                         <div class="flex justify-end border-t pt-4">
                             <button type="button" wire:click="$set('showModal', false)" class="px-4 py-1.5 bg-gray-800 hover:bg-gray-900 text-white rounded text-xs font-semibold">
-                                Fechar Ficha
+                                Fechar
+                            </button>
+                        </div>
+                    </div>
+                @endif
+
+                <!-- NOVA ABA: FICHAS DE ANAMNESE COM LISTA SANFONA (ACCORDION) -->
+                @if($activeModalTab === 'anamneses')
+                    <div class="space-y-3">
+                        @forelse($customerAnamneses as $anamnesis)
+                            <div x-data="{ expanded: false }" class="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm">
+
+                                <!-- Cabeçalho da Lista -->
+                                <div @click="expanded = !expanded" class="bg-gray-50 hover:bg-indigo-50 px-4 py-3 flex justify-between items-center cursor-pointer transition-colors border-b border-transparent" :class="{'border-gray-200': expanded}">
+                                    <div>
+                                        <h4 class="font-bold text-indigo-800 text-sm flex items-center gap-2">
+                                            <svg :class="{'rotate-180': expanded}" class="w-4 h-4 transition-transform text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                                            </svg>
+                                            {{ $anamnesis->service?->name ?? 'Serviço' }}
+                                        </h4>
+                                        <span class="text-xs text-gray-500 ml-6">Data: {{ \Carbon\Carbon::parse($anamnesis->completed_at)->format('d/m/Y \à\s H:i') }}</span>
+                                    </div>
+                                    <span class="bg-white border border-gray-200 text-gray-600 text-[10px] font-bold px-3 py-1.5 rounded shadow-sm hover:bg-gray-100 transition">Ver Respostas</span>
+                                </div>
+
+                                <!-- Conteúdo (Respostas) Oculto -->
+                                <div x-show="expanded" x-collapse x-cloak class="p-5 bg-white">
+                                    @if($anamnesis->responses && is_array($anamnesis->responses))
+                                        <ul class="space-y-4">
+                                            @foreach($anamnesis->responses as $key => $value)
+                                                <li class="text-sm">
+                                                    <span class="font-bold text-gray-700 block text-xs uppercase tracking-wide mb-1">{{ str_replace('_', ' ', $key) }}:</span>
+                                                    <span class="text-gray-900 bg-gray-50 p-2.5 border border-gray-100 rounded block {{ empty($value) ? 'italic text-gray-400' : '' }}">
+                                                        {{ empty($value) ? 'Não respondido pela cliente' : $value }}
+                                                    </span>
+                                                </li>
+                                            @endforeach
+                                        </ul>
+                                    @else
+                                        <p class="text-sm text-gray-500 italic">Nenhuma resposta processável encontrada nesta ficha.</p>
+                                    @endif
+                                </div>
+                            </div>
+                        @empty
+                            <div class="text-center py-8">
+                                <svg class="mx-auto h-12 w-12 text-gray-300 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                </svg>
+                                <p class="text-gray-500 text-sm">Esta cliente não possui nenhuma Ficha de Anamnese preenchida em seu histórico.</p>
+                            </div>
+                        @endforelse
+
+                        @if(isset($customerAnamneses) && method_exists($customerAnamneses, 'links'))
+                            <div class="mt-2 text-xs">
+                                {{ $customerAnamneses->links() }}
+                            </div>
+                        @endif
+
+                        <div class="flex justify-end border-t pt-4 mt-2">
+                            <button type="button" wire:click="$set('showModal', false)" class="px-4 py-1.5 bg-gray-800 hover:bg-gray-900 text-white rounded text-xs font-semibold">
+                                Fechar
                             </button>
                         </div>
                     </div>

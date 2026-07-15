@@ -155,6 +155,12 @@ new class extends Component
                         </x-dropdown>
                     </div>
 
+                    @if(auth()->user()->isSuperAdmin())
+                        <x-nav-link :href="route('anamnesis-templates.manage')" :active="request()->routeIs('anamnesis-templates.manage')" wire:navigate>
+                            Modelos Anamnese
+                        </x-nav-link>
+                    @endif
+
                     <x-nav-link :href="route('settings.index')" :active="request()->routeIs('settings.index')" wire:navigate>
                         Configurações
                     </x-nav-link>
@@ -233,6 +239,12 @@ new class extends Component
             <x-responsive-nav-link :href="route('pops.index')" :active="request()->routeIs('pops.index')" wire:navigate>
                 Documentação - POPs
             </x-responsive-nav-link>
+
+            @if(auth()->user()->isSuperAdmin())
+                <x-responsive-nav-link :href="route('anamnesis-templates.manage')" :active="request()->routeIs('anamnesis-templates.manage')" wire:navigate>
+                    Modelos Anamnese
+                </x-responsive-nav-link>
+            @endif
 
             <x-responsive-nav-link :href="route('settings.index')" :active="request()->routeIs('settings.index')" wire:navigate>
                 Configurações

@@ -11,7 +11,7 @@ class Service extends Model
     protected $fillable = [
         'tenant_id', 'category_id', 'name', 'slug', 'price',
         'additional_cost', 'commission_percentage', 'duration_minutes',
-        'description', 'is_active', 'image_path'
+        'description', 'is_active', 'image_path','anamnesis_template_id',
     ];
 
     protected $casts = [
@@ -31,5 +31,11 @@ class Service extends Model
         return $this->belongsToMany(Product::class, 'service_product', 'service_id', 'product_id')
                     ->withPivot('consumed_quantity')
                     ->withTimestamps();
+    }
+
+    // Adicione no seu app/Models/Service.php
+    public function anamnesisTemplate()
+    {
+        return $this->belongsTo(AnamnesisTemplate::class);
     }
 }

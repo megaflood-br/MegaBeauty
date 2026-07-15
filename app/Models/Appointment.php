@@ -30,6 +30,12 @@ class Appointment extends Model
         });
     }
 
+    // Adicione no seu app/Models/Appointment.php
+    public function anamnesis()
+    {
+        return $this->hasOne(CustomerAnamnesis::class);
+    }
+
     public function customer(): BelongsTo { return $this->belongsTo(User::class, 'customer_id'); }
     public function professional(): BelongsTo { return $this->belongsTo(Professional::class, 'professional_id'); }
     public function service(): BelongsTo { return $this->belongsTo(Service::class, 'service_id'); }

@@ -11,6 +11,7 @@ use App\Models\PaymentMethod;
 use App\Models\Transaction;
 use App\Models\FinancialCategory;
 use App\Models\Commission;
+use App\Models\CustomerAnamnesis; // Adicionado para a Automação
 use Livewire\Volt\Component;
 use Livewire\WithPagination;
 use Livewire\Attributes\Layout;
@@ -43,6 +44,9 @@ new #[Layout('layouts.app')] class extends Component
     // Lista de Itens do Agendamento
     public array $appointmentItems = [];
     public int $focusedItemIndex = -1;
+
+    // Links das Anamneses Geradas
+    public array $generatedAnamnesisLinks = [];
 
     // Estado do Checkout da Comanda
     public ?Command $activeCommand = null;
@@ -83,10 +87,6 @@ new #[Layout('layouts.app')] class extends Component
 
         $this->selectedDate = $date->format('Y-m-d');
     }
-
-    /* ---------------------------------------------------------------------------
-     * CONTROLES EXPLÍCITOS DE AUTOCOMPLETE E DURAÇÃO (SEGUROS PARA ARRAYS)
-     * --------------------------------------------------------------------------- */
 
     public function searchCustomer(string $value): void
     {
@@ -141,70 +141,54 @@ new #[Layout('layouts.app')] class extends Component
         }
     }
 
-    // Função auxiliar com inteligência para varrer colunas comuns de duração no banco
     private function getServiceDuration($serviceId): int
     {
         if (!$serviceId) return 30;
         $service = Service::find($serviceId);
 
         if ($service) {
-            // Tenta adivinhar a coluna de tempo que você criou no banco
             $durVal = $service->duration ?? $service->time ?? $service->execution_time ?? $service->duration_minutes;
 
             if ($durVal !== null) {
-                // Se for salvo no banco como H:i:s ou H:i (Ex: "01:30" ou "00:45")
                 if (is_string($durVal) && str_contains($durVal, ':')) {
                     $parts = explode(':', $durVal);
                     return ((int)$parts[0] * 60) + (isset($parts[1]) ? (int)$parts[1] : 0);
                 }
-
-                // Se for salvo em minutos inteiros (Ex: 45, 60, 90)
                 return (int) $durVal ?: 30;
             }
         }
-
-        return 30; // Fallback padrão
+        return 30;
     }
 
     public function selectServiceItem(int $index, int $id, string $name): void
     {
-        // Copia o item para forçar a reatividade do array no Livewire 3
         $item = $this->appointmentItems[$index];
 
         $item['service_id'] = (string)$id;
         $item['service_search'] = $name;
 
-        // Puxa a duração exata do banco
         $duration = $this->getServiceDuration($id);
-
-        // Guarda a duração na memória do item
         $item['duration'] = $duration;
 
-        // Calcula o horário final
         if (!empty($item['start_time'])) {
             $item['end_time'] = \Carbon\Carbon::parse($item['start_time'])
                 ->addMinutes($duration)
                 ->format('H:i');
         }
 
-        // Devolve o array completo na posição, forçando a re-renderização da linha
         $this->appointmentItems[$index] = $item;
-
         $this->focusedItemIndex = -1;
         $this->autocompleteServices = [];
     }
 
     public function updatedAppointmentItems($value, $key): void
     {
-        // Se o usuário alterar manualmente o campo do input de horário INICIAL
         if (str_ends_with($key, '.start_time')) {
             $parts = explode('.', $key);
             $index = $parts[0];
 
             if (!empty($value)) {
                 $item = $this->appointmentItems[$index];
-
-                // Usa a duração previamente resgatada do banco ou 30 min padrão
                 $duration = $item['duration'] ?? $this->getServiceDuration($item['service_id'] ?? null);
 
                 $item['end_time'] = \Carbon\Carbon::parse($value)
@@ -225,7 +209,7 @@ new #[Layout('layouts.app')] class extends Component
             'professional_id' => $profId ? (string)$profId : '',
             'start_time' => $time ? $time : '08:00',
             'end_time' => $time ? \Carbon\Carbon::parse($time)->addMinutes(30)->format('H:i') : '08:30',
-            'duration' => 30, // Chave auxiliar que usaremos no cálculo
+            'duration' => 30,
         ];
         $this->focusedItemIndex = count($this->appointmentItems) - 1;
     }
@@ -376,6 +360,7 @@ new #[Layout('layouts.app')] class extends Component
             ->get();
 
         $this->hasCommand = !empty($app->command_id);
+        $this->generatedAnamnesisLinks = []; // Limpa links antigos
 
         foreach ($relatedAppointments as $related) {
             $startC = \Carbon\Carbon::parse($related->start_time);
@@ -391,6 +376,16 @@ new #[Layout('layouts.app')] class extends Component
                 'end_time' => $endC->format('H:i'),
                 'duration' => $calcDur > 0 ? $calcDur : 30,
             ];
+
+            // Busca se existe Ficha de Anamnese atrelada a este agendamento específico
+            $anamnesis = CustomerAnamnesis::where('appointment_id', $related->id)->first();
+            if ($anamnesis) {
+                $this->generatedAnamnesisLinks[] = [
+                    'service_name' => $related->service?->name,
+                    'is_completed' => $anamnesis->is_completed,
+                    'url' => route('anamnesis.show', ['token' => $anamnesis->token])
+                ];
+            }
         }
 
         if (!empty($this->customer_id)) {
@@ -419,6 +414,9 @@ new #[Layout('layouts.app')] class extends Component
         $targetDate = $appOriginal ? $appOriginal->date : $this->selectedDate;
 
         foreach ($this->appointmentItems as $item) {
+            $savedAppId = null;
+
+            // Salva ou Atualiza o Agendamento
             if (!empty($item['id'])) {
                 $existingApp = Appointment::find($item['id']);
                 if ($existingApp) {
@@ -432,9 +430,10 @@ new #[Layout('layouts.app')] class extends Component
                         'status' => $this->status,
                         'notes' => $this->notes,
                     ]);
+                    $savedAppId = $existingApp->id;
                 }
             } else {
-                Appointment::create([
+                $newApp = Appointment::create([
                     'tenant_id' => auth()->user()->tenant_id,
                     'customer_id' => $this->customer_id,
                     'professional_id' => $item['professional_id'],
@@ -446,6 +445,27 @@ new #[Layout('layouts.app')] class extends Component
                     'status' => $commandId ? 'checked_in' : $this->status,
                     'notes' => $this->notes,
                 ]);
+                $savedAppId = $newApp->id;
+            }
+
+            // ==========================================
+            // AUTOMAÇÃO DA FICHA DE ANAMNESE
+            // ==========================================
+            if ($savedAppId) {
+                $service = Service::find($item['service_id']);
+                if ($service && $service->anamnesis_template_id) {
+                    // Verifica se já não existe uma ficha para não duplicar
+                    $anamnesisExists = CustomerAnamnesis::where('appointment_id', $savedAppId)->exists();
+
+                    if (!$anamnesisExists) {
+                        CustomerAnamnesis::create([
+                            'tenant_id' => auth()->user()->tenant_id,
+                            'customer_id' => $this->customer_id,
+                            'service_id' => $service->id,
+                            'appointment_id' => $savedAppId,
+                        ]);
+                    }
+                }
             }
         }
 
@@ -645,17 +665,12 @@ new #[Layout('layouts.app')] class extends Component
         }
     }
 
-    public function isProfessionalAvailable(Professional $prof, string $time): bool
-    {
-        return true;
-    }
-
     private function resetForm(): void
     {
         $this->reset([
             'customer_id', 'customer_search', 'status', 'notes', 'isEditingAppointment', 'editingAppointmentId',
             'selectedCustomerCrm', 'customerTotalSpent', 'appointmentItems', 'focusedItemIndex', 'checkoutServices', 'checkoutProducts', 'checkoutStep', 'discount', 'payment_method_id', 'hasCommand',
-            'autocompleteCustomers', 'autocompleteServices', 'autocompleteProducts'
+            'autocompleteCustomers', 'autocompleteServices', 'autocompleteProducts', 'generatedAnamnesisLinks'
         ]);
         $this->status = 'pending';
     }
@@ -722,12 +737,10 @@ new #[Layout('layouts.app')] class extends Component
         <div class="bg-white rounded-xl shadow-sm border overflow-x-auto max-h-[80vh] overflow-y-auto">
             <div class="min-w-[800px]" style="display: grid; grid-template-columns: 60px repeat({{ count($professionals) }}, minmax(200px, 1fr));">
 
-                <!-- Cabeçalho de Hora (Fixo no canto superior esquerdo) -->
                 <div class="bg-white p-2 text-center text-[10px] font-bold text-gray-400 uppercase border-r border-b border-gray-100 sticky top-0 left-0 z-30 flex items-end justify-center pb-2">
                     Hora
                 </div>
 
-                <!-- Cabeçalho dos Profissionais -->
                 @foreach($professionals as $prof)
                     <div class="py-3 px-2 text-center border-b border-r border-gray-100 bg-white sticky top-0 z-20 flex flex-col items-center justify-center">
                         <div class="w-8 h-8 rounded-full bg-gray-100 overflow-hidden mb-1.5 shadow-sm border border-gray-200">
@@ -747,20 +760,16 @@ new #[Layout('layouts.app')] class extends Component
                     </div>
                 @endforeach
 
-                <!-- Slots da Grade e Coluna de Tempo -->
                 @foreach($timeSlots as $index => $slot)
-                    <!-- Coluna de Tempo Esquerda -->
                     <div class="bg-white text-center font-medium text-[10px] text-gray-400 border-r border-b border-gray-100 p-1 flex items-start justify-center h-8 sticky left-0 z-10" style="grid-column: 1; grid-row: {{ $index + 2 }};">
                         {{ str_ends_with($slot, '0') || str_ends_with($slot, '5') ? $slot : '' }}
                     </div>
 
-                    <!-- Quadrados Vazios da Grade -->
                     @foreach($professionals as $pIndex => $prof)
                         <div wire:click="openAppointment({{ $prof->id }}, '{{ $slot }}')" class="border-r border-b border-gray-100 cursor-pointer hover:bg-gray-50 h-8 transition-colors" style="grid-column: {{ $pIndex + 2 }}; grid-row: {{ $index + 2 }};"></div>
                     @endforeach
                 @endforeach
 
-                <!-- Renderização dos Agendamentos -->
                 @foreach($appointments as $app)
                     @php
                         $pIndex = $professionals->pluck('id')->search($app->professional_id);
@@ -774,17 +783,15 @@ new #[Layout('layouts.app')] class extends Component
 
                         $currentStatus = ($app->command && $app->command->status === 'finished') ? 'finished' : $app->status;
 
-                        // Cores sólidas simulando o padrão Belasis
                         $statusClasses = match($currentStatus) {
-                            'confirmed', 'pending' => 'bg-[#31cf91] text-white shadow-sm', // Verde Sólido
-                            'checked_in'=> 'bg-sky-500 text-white shadow-sm', // Azul Sólido
-                            'finished'  => 'bg-gray-400 text-white opacity-90', // Cinza Finalizado
-                            'canceled'  => 'bg-rose-500 text-white opacity-80 line-through', // Vermelho Cancelado
+                            'confirmed', 'pending' => 'bg-[#31cf91] text-white shadow-sm',
+                            'checked_in'=> 'bg-sky-500 text-white shadow-sm',
+                            'finished'  => 'bg-gray-400 text-white opacity-90',
+                            'canceled'  => 'bg-rose-500 text-white opacity-80 line-through',
                             default     => 'bg-[#31cf91] text-white shadow-sm',
                         };
                     @endphp
                     @if($pIndex !== false && $startRow !== false && $startRow < $endRow)
-                        <!-- Card do Agendamento Estilo Belasis -->
                         <div wire:click="editAppointment({{ $app->id }})" class="p-2 rounded-md m-[1px] overflow-hidden flex flex-col cursor-pointer transition hover:brightness-95 {{ $statusClasses }}" style="grid-column: {{ $pIndex + 2 }}; grid-row: {{ $startRow + 2 }} / {{ $endRow + 2 }}; z-index: 10;">
                             <div class="text-[10px] font-semibold opacity-90 leading-tight mb-0.5">
                                 {{ \Carbon\Carbon::parse($app->start_time)->format('H:i') }} - {{ \Carbon\Carbon::parse($app->end_time)->format('H:i') }}
@@ -798,7 +805,6 @@ new #[Layout('layouts.app')] class extends Component
         </div>
     </div>
 
-    <!-- Modais de Edição/Criação mantidos idênticos, apenas visual da grade alterado -->
     @if($showAppointmentModal)
         <div class="fixed inset-0 overflow-y-auto z-50 flex items-center justify-center p-4">
             <div class="fixed inset-0 bg-gray-500 opacity-75" wire:click="$set('showAppointmentModal', false)"></div>
@@ -806,7 +812,6 @@ new #[Layout('layouts.app')] class extends Component
                 <h3 class="text-base font-black mb-4">Gerenciamento de Agendamento</h3>
                 <form wire:submit.prevent="saveAppointment" class="space-y-4">
 
-                    <!-- Linha com Cliente e Status -->
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
                         <div class="md:col-span-2 relative">
                             <x-input-label value="Cliente *" />
@@ -825,7 +830,6 @@ new #[Layout('layouts.app')] class extends Component
                                 <option value="pending">⏳ Pendente</option>
                                 <option value="confirmed">👍 Confirmado</option>
                                 <option value="checked_in">📍 Em Atendimento</option>
-                               <!-- <option value="finished">✅ Finalizado</option> -->
                                 <option value="canceled">❌ Cancelado</option>
                             </select>
                         </div>
@@ -881,10 +885,40 @@ new #[Layout('layouts.app')] class extends Component
                         @endforeach
                     </div>
 
+                    @if(count($generatedAnamnesisLinks) > 0)
+                        <div class="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg shadow-sm">
+                            <h4 class="text-[11px] font-bold text-blue-800 mb-2 uppercase tracking-wide">📋 Fichas de Anamnese Geradas</h4>
+                            <div class="space-y-2">
+                                @foreach($generatedAnamnesisLinks as $link)
+                                    <div class="flex items-center justify-between bg-white p-2 rounded-md border border-blue-100">
+                                        <div>
+                                            <span class="text-xs font-bold text-gray-700">{{ $link['service_name'] }}</span>
+                                            @if($link['is_completed'])
+                                                <span class="ml-2 inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-green-100 text-green-800">Preenchida ✓</span>
+                                            @else
+                                                <span class="ml-2 inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800">Pendente ⏳</span>
+                                            @endif
+                                        </div>
+                                        <div class="flex items-center space-x-3">
+                                            <a href="{{ $link['url'] }}" target="_blank" class="text-[10px] text-blue-600 hover:text-blue-800 font-bold underline">Ver Tela da Cliente</a>
+                                            <button type="button"
+                                                    x-data="{ copied: false }"
+                                                    @click="navigator.clipboard.writeText('{{ $link['url'] }}'); copied = true; setTimeout(() => copied = false, 2000)"
+                                                    class="text-[10px] bg-[#25D366] text-white px-3 py-1.5 rounded shadow hover:bg-green-600 font-bold transition flex items-center">
+                                                <span x-show="!copied">Copiar Link WhatsApp</span>
+                                                <span x-show="copied" class="hidden" :class="{'hidden': !copied}">✓ Copiado!</span>
+                                            </button>
+                                        </div>
+                                    </div>
+                                @endforeach
+                            </div>
+                        </div>
+                    @endif
+
                     <div class="flex justify-between items-center pt-4 border-t mt-4">
                         <button type="button" wire:click="addItem" class="text-xs font-bold text-indigo-600 px-3 py-1 bg-indigo-50 rounded hover:bg-indigo-100">+ Adicionar Serviço</button>
                         <div class="flex space-x-2">
-                            <button type="button" wire:click="$set('showAppointmentModal', false)" class="px-4 py-2 border rounded-md text-xs bg-white shadow-sm">Cancelar</button>
+                            <button type="button" wire:click="$set('showAppointmentModal', false)" class="px-4 py-2 border rounded-md text-xs bg-white shadow-sm font-semibold">Cancelar</button>
                             @if($isEditingAppointment)
                                 <button type="button" wire:click="faturarParaComanda" class="px-4 py-2 {{ $hasCommand ? 'bg-blue-600' : 'bg-green-600' }} text-white rounded-md text-xs font-black shadow-sm">
                                     {{ $hasCommand ? 'Abrir Comanda' : 'Criar Comanda' }}
@@ -933,11 +967,11 @@ new #[Layout('layouts.app')] class extends Component
                                     <div class="flex items-center space-x-2 relative overflow-visible" wire:key="checkout-serv-row-{{ $sIndex }}">
                                         <div class="flex-1 relative overflow-visible">
                                             <x-text-input type="text"
-                                                         wire:model="checkoutServices.{{ $sIndex }}.service_search"
-                                                         wire:input.debounce.300ms="searchCheckoutService({{ $sIndex }}, $event.target.value)"
-                                                         placeholder="Procure o serviço..."
-                                                         class="w-full text-sm"
-                                                         disabled="{{ $activeCommand->status === 'finished' ? 'disabled' : '' }}" />
+                                                          wire:model="checkoutServices.{{ $sIndex }}.service_search"
+                                                          wire:input.debounce.300ms="searchCheckoutService({{ $sIndex }}, $event.target.value)"
+                                                          placeholder="Procure o serviço..."
+                                                          class="w-full text-sm"
+                                                          disabled="{{ $activeCommand->status === 'finished' ? 'disabled' : '' }}" />
 
                                             @if($focusedCheckoutServiceIndex === $sIndex && !empty($autocompleteServices))
                                                 <div class="absolute left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-xl z-[150] max-h-36 overflow-y-auto divide-y">

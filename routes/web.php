@@ -24,11 +24,18 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Volt::route('professionals', 'pages.professionals.index')->name('professionals.index');
     Volt::route('commands', 'pages.commands.index')->name('commands.index');
 
-    // Nova rota para o gerenciador de POPs
+    // Gerenciador de POPs
     Volt::route('pops', 'pages.pops.index')->name('pops.index');
     Volt::route('/pops/create', 'pages.pops.manage')->name('pops.create');
     Volt::route('/pops/{id}/edit', 'pages.pops.manage')->name('pops.edit');
 
+    // --------------------------------------------------------
+    // ROTA INTERNA (Dono da clínica gerencia os templates)
+    // Agora ela vem ANTES do curinga, protegida pelo auth!
+    // --------------------------------------------------------
+    Volt::route('/anamnese/templates', 'pages.anamnesis.manage')->name('anamnesis-templates.manage');
+
+    // Financeiro e Agenda
     Volt::route('/formas-pagamento', 'payment-methods.index')->name('payment-methods.index');
     Volt::route('/financeiro/transacoes', 'financial.transactions')->name('financial.transactions');
     Volt::route('/financeiro/categorias', 'financial.categories')->name('financial.categories');
@@ -36,5 +43,11 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Volt::route('/financeiro/configuracoes', 'financial.settings')->name('financial.settings');
     Volt::route('/agenda', 'agenda.index')->name('agenda.index');
 });
+
+// --------------------------------------------------------
+// ROTA PÚBLICA (Cliente responde via WhatsApp)
+// Movida para o final para não causar conflitos de rota.
+// --------------------------------------------------------
+Volt::route('/anamnese/{token}', 'pages.anamnesis.show')->name('anamnesis.show');
 
 require __DIR__.'/auth.php';
